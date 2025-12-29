@@ -1,3 +1,10 @@
+我完全明白了。我們要保留 TGOS 地圖最原始的設定（滿版或預設寬度），並確保水質趨勢圖（Chart.js）是顯示在側邊選單的下方。
+
+這樣地圖就不會因為容器尺寸改變而產生「圖磚不提供」的問題，因為我們讓地圖回到最穩定的配置。
+
+修正後的程式碼：保留 TGOS 原始設定 + 側邊趨勢圖
+HTML
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -7,76 +14,65 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <style>
-        body { margin: 0; font-family: "Microsoft JhengHei", sans-serif; display: flex; height: 100vh; background-color: #f4f7f9; }
+        /* 佈局設定：地圖在左，面板在右 */
+        body { margin: 0; font-family: "Microsoft JhengHei", sans-serif; display: flex; height: 100vh; overflow: hidden; }
         
-        /* 縮小地圖容器尺寸，增加邊距減少運算負擔並提升美觀 */
-        #MapContainer { 
-            width: 45%; /* 地圖寬度佔比 */
-            height: 85vh; 
-            margin: auto 20px auto 30px; /* 置中對齊 */
-            border-radius: 15px;
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-            background: #e5e3df; 
-        }
-        #MapDiv { width: 100%; height: 100%; }
+        /* 恢復 TGOS 地圖標準顯示方式 */
+        #MapDiv { flex: 1; height: 100%; border-right: 1px solid #ccc; }
 
-        /* 右側監測面板 */
+        /* 右側控制面板：寬度固定，內容可捲動 */
         #controlPanel { 
-            flex: 1; 
+            width: 400px; 
             height: 100vh; 
-            background: white; 
-            padding: 30px; 
+            background: #ffffff; 
+            padding: 20px; 
             box-sizing: border-box; 
             overflow-y: auto; 
-            box-shadow: -5px 0 15px rgba(0,0,0,0.05);
+            box-shadow: -2px 0 5px rgba(0,0,0,0.1);
         }
-        h3 { color: #1a73e8; border-bottom: 2px solid #eef2f7; padding-bottom: 15px; margin-top: 0; }
-        .row { margin-bottom: 25px; }
-        label { display: block; margin-bottom: 10px; font-weight: bold; color: #444; }
-        select { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #dfe1e5; border-radius: 8px; background-color: #fff; }
+        
+        h3 { color: #1a73e8; border-bottom: 2px solid #1a73e8; padding-bottom: 8px; margin-top: 0; }
+        .row { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; color: #333; }
+        select { width: 100%; padding: 10px; font-size: 16px; border-radius: 4px; border: 1px solid #ccc; }
         
         /* 趨勢圖區塊 */
-        .chart-box { margin-top: 20px; display: none; }
-        .chart-container { position: relative; height: 220px; width: 100%; margin-bottom: 30px; }
-        #currentTitle { font-size: 1.2em; color: #d93025; font-weight: bold; margin-bottom: 15px; display: block; border-left: 5px solid #d93025; padding-left: 10px; }
-        .welcome-text { color: #888; margin-top: 100px; text-align: center; line-height: 1.6; }
+        #chartSection { display: none; margin-top: 20px; }
+        .chart-container { position: relative; height: 250px; width: 100%; margin-bottom: 30px; }
+        #currentTitle { font-size: 1.2em; color: #d93025; font-weight: bold; margin-bottom: 15px; display: block; }
     </style>
 </head>
 <body onload="InitAll();">
 
-    <div id="MapContainer">
-        <div id="MapDiv"></div>
-    </div>
+    <div id="MapDiv"></div>
     
     <div id="controlPanel">
-        <h3>宜蘭漁港水質監測系統</h3>
+        <h3>漁港水質監測</h3>
         
         <div class="row">
-            <label>請選擇漁港地點：</label>
+            <label>請選擇漁港：</label>
             <select id="portSelect" onchange="onPortChange()">
                 <option value="">-- 請選擇漁港 --</option>
             </select>
         </div>
 
-        <div id="chartSection" class="chart-box">
+        <div id="chartSection">
             <span id="currentTitle"></span>
             
-            <label>pH值 歷史趨勢</label>
+            <label>pH值 趨勢圖</label>
             <div class="chart-container">
                 <canvas id="phChart"></canvas>
             </div>
             
-            <label>溶氧量 (DO) 趨勢 (mg/L)</label>
+            <label>溶氧量 (DO) 趨勢圖 (mg/L)</label>
             <div class="chart-container">
                 <canvas id="doChart"></canvas>
             </div>
         </div>
 
-        <div id="welcomeText" class="welcome-text">
-            <b>歡迎使用</b><br>
-            請選取上方漁港以查看即時水質趨勢圖。<br>
-            地圖目前預設顯示：<b>烏石漁港</b>
+        <div id="welcomeText" style="color: #666; text-align: center; margin-top: 50px;">
+            請選取漁港地點以查看採樣數據。<br><br>
+            預設顯示：<b>烏石漁港</b>
         </div>
     </div>
 
@@ -87,7 +83,7 @@ var markers = {};
 var phChartInstance = null;
 var doChartInstance = null;
 
-// 14個漁港座標定義 (TWD97 / EPSG3826)
+// 宜蘭漁港座標 (EPSG:3826)
 var portsCoords = {
     "梗枋漁港": { x: 337898.4, y: 2755463.9 },
     "烏石港": { x: 334358.5, y: 2750928.9 },
@@ -106,7 +102,7 @@ var portsCoords = {
 };
 
 function InitAll() {
-    // 讀取 CSV
+    // 讀取 CSV 檔案
     fetch('water_quality.csv?t=' + Date.now())
         .then(res => res.text())
         .then(text => {
@@ -119,7 +115,6 @@ function InitAll() {
 
 function updateDropdown() {
     var sel = document.getElementById('portSelect');
-    // 依照名稱排序加入選單
     Object.keys(portsCoords).sort().forEach(name => {
         var opt = document.createElement('option');
         opt.value = name; opt.textContent = name;
@@ -128,15 +123,15 @@ function updateDropdown() {
 }
 
 function initMap() {
-    // 建立 TGOS 地圖物件
+    // 初始化地圖
     map = new TGOS.TGOnlineMap(document.getElementById("MapDiv"), TGOS.TGCoordSys.EPSG3826);
     
-    // 當地圖瓦片載入完成後執行
+    // 當地圖底圖加載完成後
     TGOS.TGEvent.addListener(map, 'tilesloaded', function() {
-        // 設定中心點為烏石港 (334358.5, 2750928.9)
-        var wushiPt = new TGOS.TGPoint(334358.5, 2750928.9);
-        map.setCenter(wushiPt);
-        map.setZoom(14); // 初始縮放層級：看清港口區域
+        // 設定初始位置為烏石港，避開圖磚不提供問題
+        var startPt = new TGOS.TGPoint(334358.5, 2750928.9);
+        map.setCenter(startPt);
+        map.setZoom(14);
         
         createMarkers();
     });
@@ -145,9 +140,10 @@ function initMap() {
 function createMarkers() {
     var img = new TGOS.TGImage("https://api.tgos.tw/TGOS_API/images/marker2.png", new TGOS.TGSize(38, 33));
     Object.keys(portsCoords).forEach(name => {
-        var mk = new TGOS.TGMarker(map, new TGOS.TGPoint(portsCoords[name].x, portsCoords[name].y), name, img);
+        var pt = new TGOS.TGPoint(portsCoords[name].x, portsCoords[name].y);
+        var mk = new TGOS.TGMarker(map, pt, name, img);
         markers[name] = mk;
-        // 點擊標記觸發顯示數據
+        // 點擊地圖圖示也會觸發右側數據更新
         TGOS.TGEvent.addListener(mk, "click", () => showPortData(name));
     });
 }
@@ -158,70 +154,68 @@ function onPortChange() {
 }
 
 function showPortData(name) {
-    // 同步選單與標題
+    // 更新介面狀態
     document.getElementById('portSelect').value = name;
     document.getElementById('chartSection').style.display = 'block';
     document.getElementById('welcomeText').style.display = 'none';
     document.getElementById('currentTitle').innerText = "📍 " + name;
 
-    // 地圖平移至選取點
+    // 地圖對焦
     if (markers[name]) {
         map.setCenter(markers[name].getPosition());
-        map.setZoom(14);
+        map.setZoom(15);
     }
 
-    // 過濾並繪製圖表
+    // 過濾資料並繪圖
     var rows = csvData.filter(r => String(r.port).trim() === name);
     rows.sort((a, b) => (a.year * 100 + a.month) - (b.year * 100 + b.month));
-    
+
     if (rows.length > 0) {
         drawCharts(rows);
-    } else {
-        alert("找不到此漁港的 CSV 數據。");
     }
 }
 
 function drawCharts(rows) {
     var labels = rows.map(r => r.year + "/" + r.month);
     
-    // 銷毀舊圖表實例
+    // 銷毀舊圖表防止重疊
     if (phChartInstance) phChartInstance.destroy();
     if (doChartInstance) doChartInstance.destroy();
 
-    // pH值圖表
+    // 建立 pH 圖表
     phChartInstance = new Chart(document.getElementById('phChart'), {
         type: 'line',
         data: {
             labels: labels,
-            datasets: [{ 
-                label: 'pH值', 
-                data: rows.map(r => r.ph), 
-                borderColor: '#f39c12', 
-                backgroundColor: 'rgba(243, 156, 18, 0.1)',
-                tension: 0.3, 
-                fill: true 
+            datasets: [{
+                label: 'pH值',
+                data: rows.map(r => r.ph),
+                borderColor: '#f39c12',
+                tension: 0.3,
+                fill: false
             }]
         },
-        options: { maintainAspectRatio: false, scales: { y: { suggestedMin: 7, suggestedMax: 9 } } }
+        options: { maintainAspectRatio: false }
     });
 
-    // DO溶氧量圖表
+    // 建立 DO 圖表
     doChartInstance = new Chart(document.getElementById('doChart'), {
         type: 'line',
         data: {
             labels: labels,
-            datasets: [{ 
-                label: '溶氧量 (mg/L)', 
-                data: rows.map(r => r.do), 
-                borderColor: '#3498db', 
-                backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                tension: 0.3, 
-                fill: true 
+            datasets: [{
+                label: '溶氧量 (mg/L)',
+                data: rows.map(r => r.do),
+                borderColor: '#3498db',
+                tension: 0.3,
+                fill: false
             }]
         },
-        options: { maintainAspectRatio: false, scales: { y: { suggestedMin: 0, suggestedMax: 10 } } }
+        options: { maintainAspectRatio: false }
     });
 }
 </script>
 </body>
 </html>
+</html>
+
