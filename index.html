@@ -7,64 +7,47 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <style>
-        body { margin: 0; font-family: "Microsoft JhengHei", sans-serif; display: flex; height: 100vh; background-color: #f4f7f9; }
-        
-        /* 稍微加大比例並固定寬度，減少地圖計算錯誤 */
-        #MapContainer { 
-            width: 50%; 
-            height: 90vh; 
-            margin: auto 20px auto 30px;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-            background: #e5e3df; 
-            position: relative;
-        }
-        #MapDiv { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-
+        body { margin: 0; font-family: "Microsoft JhengHei", sans-serif; display: flex; height: 100vh; width: 100vw; overflow: hidden; }
+        #MapDiv { flex: 1; height: 100%; position: relative; }
         #controlPanel { 
-            flex: 1; 
-            height: 100vh; 
-            background: white; 
-            padding: 30px; 
+            width: 400px; 
+            height: 100%; 
+            background: #fff; 
+            padding: 20px; 
             box-sizing: border-box; 
             overflow-y: auto; 
+            border-left: 1px solid #ccc;
+            z-index: 10;
         }
-        h3 { color: #1a73e8; border-bottom: 2px solid #eef2f7; padding-bottom: 15px; margin-top: 0; }
-        .row { margin-bottom: 25px; }
-        label { display: block; margin-bottom: 10px; font-weight: bold; }
-        select { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #dfe1e5; border-radius: 8px; }
-        
-        .chart-box { margin-top: 20px; display: none; }
-        .chart-container { position: relative; height: 200px; width: 100%; margin-bottom: 30px; }
-        #currentTitle { font-size: 1.2em; color: #d93025; font-weight: bold; margin-bottom: 15px; display: block; border-left: 5px solid #d93025; padding-left: 10px; }
+        h3 { color: #1a73e8; border-bottom: 2px solid #1a73e8; padding-bottom: 8px; margin-top: 0; }
+        .row { margin-bottom: 20px; }
+        select { width: 100%; padding: 10px; font-size: 16px; }
+        #chartSection { display: none; margin-top: 20px; }
+        .chart-container { position: relative; height: 200px; width: 100%; margin-bottom: 20px; }
     </style>
 </head>
 <body onload="InitAll();">
 
-    <div id="MapContainer">
-        <div id="MapDiv"></div>
-    </div>
+    <div id="MapDiv"></div>
     
     <div id="controlPanel">
-        <h3>宜蘭漁港水質監測系統</h3>
+        <h3>漁港水質監測</h3>
         <div class="row">
-            <label>監測地點選單：</label>
+            <label>選擇監測漁港：</label>
             <select id="portSelect" onchange="onPortChange()">
                 <option value="">-- 請選擇漁港 --</option>
             </select>
         </div>
 
-        <div id="chartSection" class="chart-box">
-            <span id="currentTitle"></span>
-            <label>pH值 歷史趨勢</label>
-            <div class="chart-container"><canvas id="phChart"></canvas></div>
-            <label>溶氧量 (DO) 趨勢 (mg/L)</label>
-            <div class="chart-container"><canvas id="doChart"></canvas></div>
+        <div id="chartSection">
+            <b id="currentTitle" style="color:red; font-size:1.2em;"></b>
+            <hr>
+            <canvas id="phChart" class="chart-container"></canvas>
+            <canvas id="doChart" class="chart-container"></canvas>
         </div>
 
-        <div id="welcomeText" style="color: #888; margin-top: 100px; text-align: center;">
-            請選取漁港查看數據，地圖預設定位於：烏石漁港
+        <div id="welcomeText" style="margin-top:50px; text-align:center; color:#888;">
+            請選取漁港，地圖將自動跳轉至該位置。
         </div>
     </div>
 
@@ -75,6 +58,7 @@ var markers = {};
 var phChartInstance = null;
 var doChartInstance = null;
 
+// 14個漁港座標 (TWD97)
 var portsCoords = {
     "梗枋漁港": { x: 337898.4, y: 2755463.9 },
     "烏石港": { x: 334358.5, y: 2750928.9 },
@@ -113,30 +97,29 @@ function updateDropdown() {
 
 function initMap() {
     var mapDiv = document.getElementById("MapDiv");
-    // 初始化地圖，但不設定中心點與等級
-    map = new TGOS.TGOnlineMap(mapDiv, TGOS.TGCoordSys.EPSG3826);
-
-    // 當地圖初始化完成後
-    TGOS.TGEvent.addListener(map, 'tilesloaded', function() {
-        // 重要：這行能解決「不提供圖磚」的問題，讓地圖重新對齊容器
-        map.checkResize();
-        
-        // 第一次載入時，如果還沒設定過中心點，則設定到烏石港
-        if (map.getZoom() < 5) {
-            var wushiPt = new TGOS.TGPoint(334358.5, 2750928.9);
-            map.setCenter(wushiPt);
-            map.setZoom(14);
-            createMarkers();
-        }
+    // 初始化地圖，預設定位在烏石港
+    var startPt = new TGOS.TGPoint(334358.5, 2750928.9);
+    map = new TGOnlineMap(mapDiv, TGOS.TGCoordSys.EPSG3826, {
+        center: startPt,
+        zoom: 14
     });
+
+    // 建立標記
+    createMarkers();
 }
 
 function createMarkers() {
     var img = new TGOS.TGImage("https://api.tgos.tw/TGOS_API/images/marker2.png", new TGOS.TGSize(38, 33));
+    
     Object.keys(portsCoords).forEach(name => {
-        var mk = new TGOS.TGMarker(map, new TGOS.TGPoint(portsCoords[name].x, portsCoords[name].y), name, img);
+        var pt = new TGOS.TGPoint(portsCoords[name].x, portsCoords[name].y);
+        var mk = new TGOS.TGMarker(map, pt, name, img);
         markers[name] = mk;
-        TGOS.TGEvent.addListener(mk, "click", () => showPortData(name));
+        
+        // 點擊標記觸發
+        TGOS.TGEvent.addListener(mk, "click", function() {
+            showPortData(name);
+        });
     });
 }
 
@@ -149,10 +132,12 @@ function showPortData(name) {
     document.getElementById('portSelect').value = name;
     document.getElementById('chartSection').style.display = 'block';
     document.getElementById('welcomeText').style.display = 'none';
-    document.getElementById('currentTitle').innerText = "📍 " + name;
+    document.getElementById('currentTitle').innerText = name;
 
-    if (markers[name]) {
-        map.setCenter(markers[name].getPosition());
+    // 地圖跳轉核心代碼
+    if (portsCoords[name]) {
+        var targetPt = new TGOS.TGPoint(portsCoords[name].x, portsCoords[name].y);
+        map.setCenter(targetPt);
         map.setZoom(15);
     }
 
@@ -166,31 +151,24 @@ function drawCharts(rows) {
     if (phChartInstance) phChartInstance.destroy();
     if (doChartInstance) doChartInstance.destroy();
 
-    var commonOptions = { 
-        maintainAspectRatio: false,
-        plugins: { legend: { position: 'bottom' } }
-    };
-
     phChartInstance = new Chart(document.getElementById('phChart'), {
         type: 'line',
         data: {
             labels: labels,
-            datasets: [{ label: 'pH值', data: rows.map(r => r.ph), borderColor: '#f39c12', tension: 0.3, fill: false }]
+            datasets: [{ label: 'pH值', data: rows.map(r => r.ph), borderColor: 'orange', fill: false }]
         },
-        options: commonOptions
+        options: { maintainAspectRatio: false }
     });
 
     doChartInstance = new Chart(document.getElementById('doChart'), {
         type: 'line',
         data: {
             labels: labels,
-            datasets: [{ label: '溶氧量 (mg/L)', data: rows.map(r => r.do), borderColor: '#3498db', tension: 0.3, fill: false }]
+            datasets: [{ label: '溶氧量 (mg/L)', data: rows.map(r => r.do), borderColor: 'blue', fill: false }]
         },
-        options: commonOptions
+        options: { maintainAspectRatio: false }
     });
 }
 </script>
 </body>
 </html>
-</html>
-
