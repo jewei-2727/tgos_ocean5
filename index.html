@@ -2,34 +2,57 @@
 <html>
 <head>
     <meta charset="utf-8" />
-    <title>宜蘭漁港水質監測</title>
+    <title>宜蘭漁港水質動態監測系統 (CSV自動讀取版)</title>
     <script type="text/javascript" src="https://api.tgos.tw/TGOS_API/tgos?ver=2&AppID=x+JLVSx85Lk=&APIKey=in8W74q0ogpcfW/STwicK8D5QwCdddJf05/7nb+OtDh8R99YN3T0LurV4xato3TpL/fOfylvJ9Wv/khZEsXEWxsBmg+GEj4AuokiNXCh14Rei21U5GtJpIkO++Mq3AguFK/ISDEWn4hMzqgrkxNe1Q==" charset="utf-8"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <style>
-        body { margin: 0; font-family: "Microsoft JhengHei", sans-serif; overflow: hidden; }
-        #MapDiv { position: absolute; top: 0; left: 0; width: calc(100% - 520px); height: 100vh; border-right: 1px solid #333; }
-        #controlPanel { position: absolute; top: 0; right: 0; width: 520px; height: 100vh; background: #fff; padding: 15px; box-sizing: border-box; overflow-y: auto; }
-        .row { margin-bottom: 10px; }
-        canvas { background: #fff; border: 1px solid #eee; margin-bottom: 10px; }
-        #currentPort { font-weight: bold; color: #e74c3c; }
+        body { margin: 0; font-family: "Microsoft JhengHei", sans-serif; overflow: hidden; background: #f8f9fa; }
+        #MapDiv { position: absolute; top: 0; left: 0; width: calc(100% - 520px); height: 100vh; border-right: 2px solid #333; }
+        #controlPanel { position: absolute; top: 0; right: 0; width: 520px; height: 100vh; background: #fff; padding: 20px; box-sizing: border-box; overflow-y: auto; box-shadow: -2px 0 5px rgba(0,0,0,0.1); }
+        .row { margin-bottom: 15px; }
+        h2 { color: #2c3e50; border-left: 5px solid #3498db; padding-left: 10px; }
+        select { padding: 8px; width: 220px; border-radius: 4px; border: 1px solid #ccc; }
+        button { padding: 8px 15px; cursor: pointer; background: #3498db; color: white; border: none; border-radius: 4px; }
+        button:hover { background: #2980b9; }
+        canvas { background: #fff; border: 1px solid #eee; margin-top: 10px; border-radius: 8px; }
+        .status-box { background: #ecf0f1; padding: 10px; border-radius: 5px; margin-top: 10px; }
+        #currentPort { font-weight: bold; color: #e74c3c; font-size: 1.2em; }
     </style>
 </head>
 <body onload="InitAll();">
 
 <div id="MapDiv"></div>
+
 <div id="controlPanel">
-    <h3>宜蘭漁港水質監控</h3>
+    <h2>宜蘭漁港水質監測</h2>
+    
     <div class="row">
-        <button onclick="InitAll()">更新資料</button>
+        <button onclick="InitAll()">🔄 重新載入 CSV 資料</button>
+    </div>
+
+    <div class="row">
+        <label for="portSelect"><b>選擇漁港：</b></label>
         <select id="portSelect" onchange="onPortChange()">
-            <option value="">-- 選擇漁港 --</option>
+            <option value="">-- 請選擇漁港 --</option>
         </select>
     </div>
-    <div class="row">目前顯示：<span id="currentPort">未選擇</span></div>
+
+    <div class="status-box">
+        目前檢視：<span id="currentPort">未選取</span>
+    </div>
+
     <hr>
-    <canvas id="phChart" width="480" height="250"></canvas>
-    <canvas id="doChart" width="480" height="250"></canvas>
+
+    <h4>pH 值趨勢</h4>
+    <canvas id="phChart" width="480" height="240"></canvas>
+
+    <h4>溶氧量 (DO) 趨勢 (mg/L)</h4>
+    <canvas id="doChart" width="480" height="240"></canvas>
+    
+    <p style="font-size: 12px; color: gray; margin-top: 20px;">
+        提示：地圖點位是由 CSV 中的 x (經度) 與 y (緯度) 自動產生。
+    </p>
 </div>
 
 <script>
@@ -38,35 +61,40 @@ var map = null;
 var csvData = [];
 var markers = {};
 var infoWindows = {};
-var phChart = null;
-var doChart = null;
+var phChart = null, doChart = null;
+var portsCoords = {}; // 座標將從 CSV 動態提取
 
-var portsCoords = {
-    "梗枋漁港": { x: 337898.4, y: 2755463.9 },
-    "烏石港": { x: 334358.5, y: 2750928.9 },
-    "大溪第一漁港": { x: 340901.8, y: 2759624.4 },
-    "大溪第二漁港": { x: 340968.9, y: 2759546.8 },
-    "蕃薯寮漁港": { x: 342563.8, y: 2760805.5 },
-    "大里漁港": { x: 343220.0, y: 2761946.8 },
-    "石城漁港": { x: 346200.7, y: 2763897.6 },
-    "桶盤堀漁港": { x: 344719.1, y: 2763183.0 },
-    "蘇澳港": { x: 337357.7, y: 2720456.9 },
-    "南方澳第三漁港": { x: 337508.2, y: 2720049.9 },
-    "南方澳第一漁港": { x: 337609.1, y: 2719860.5 },
-    "南方澳第二漁港": { x: 337695.5, y: 2719339.7 },
-    "粉鳥林漁港": { x: 335186.0, y: 2710502.8 },
-    "朝陽漁港": { x: 332832.6, y: 2706456.8 }
-};
-
+/**
+ * 1. 系統入口：讀取 CSV
+ */
 function InitAll() {
-    console.log("系統初始化...");
+    console.log("開始載入資料...");
     var csvUrl = 'water_quality.csv?t=' + Date.now();
+    
     fetch(csvUrl)
-        .then(function(res) { return res.text(); })
+        .then(function(res) { 
+            if(!res.ok) throw new Error("找不到 CSV 檔案");
+            return res.text(); 
+        })
         .then(function(txt) {
             var parsed = Papa.parse(txt, { header: true, skipEmptyLines: true });
             csvData = parsed.data;
+
+            // 從 CSV 中掃描座標資訊 (x=經度, y=緯度)
+            portsCoords = {}; 
+            csvData.forEach(function(row) {
+                var name = (row.port || "").trim();
+                if (name && row.x && row.y) {
+                    // 以最後讀取到的座標為準
+                    portsCoords[name] = { 
+                        lng: parseFloat(row.x), 
+                        lat: parseFloat(row.y) 
+                    };
+                }
+            });
+
             updateDropdown();
+            
             if (!map) {
                 initMap();
             } else {
@@ -74,44 +102,58 @@ function InitAll() {
             }
         })
         .catch(function(err) {
-            console.error("CSV載入失敗:", err);
-            if (!map) initMap(); // 就算沒CSV也要把地圖打開
+            console.error("初始化失敗:", err);
+            alert("資料載入失敗，請確認 CSV 檔案是否存在且格式正確。");
         });
 }
 
+/**
+ * 2. 更新下拉選單
+ */
 function updateDropdown() {
     var sel = document.getElementById('portSelect');
-    sel.innerHTML = '<option value="">-- 選擇漁港 --</option>';
-    var names = Object.keys(portsCoords).sort();
-    names.forEach(function(n) {
+    var currentVal = sel.value;
+    sel.innerHTML = '<option value="">-- 請選擇漁港 --</option>';
+    
+    var sortedNames = Object.keys(portsCoords).sort();
+    sortedNames.forEach(function(n) {
         var opt = document.createElement('option');
         opt.value = n;
         opt.textContent = n;
         sel.appendChild(opt);
     });
+    if(currentVal) sel.value = currentVal;
 }
 
+/**
+ * 3. 初始化地圖 (WGS84 模式)
+ */
 function initMap() {
     var div = document.getElementById('MapDiv');
-    map = new TGOS.TGOnlineMap(div, TGOS.TGCoordSys.EPSG3826);
-    map.setCenter(new TGOS.TGPoint(336500, 2735000));
+    // 使用 EPSG:4326 (經緯度) 系統
+    map = new TGOS.TGOnlineMap(div, TGOS.TGCoordSys.EPSG4326);
+    map.setCenter(new TGOS.TGPoint(121.85, 24.75)); 
     map.setZoom(10);
     createMarkers();
 }
 
+/**
+ * 4. 根據 CSV 座標建立地圖標記
+ */
 function createMarkers() {
     // 清除舊標記
     for (var k in markers) { markers[k].setMap(null); }
     markers = {};
+    infoWindows = {};
 
     var img = new TGOS.TGImage("https://api.tgos.tw/TGOS_API/images/marker2.png", new TGOS.TGSize(38,33));
     
     Object.keys(portsCoords).forEach(function(name) {
-        var pt = new TGOS.TGPoint(portsCoords[name].x, portsCoords[name].y);
+        var pt = new TGOS.TGPoint(portsCoords[name].lng, portsCoords[name].lat);
         var mk = new TGOS.TGMarker(map, pt, name, img);
         markers[name] = mk;
         
-        var iw = new TGOS.TGInfoWindow("<b>" + name + "</b>", pt);
+        var iw = new TGOS.TGInfoWindow("<b>" + name + "</b><br>點擊看水質圖表", pt);
         infoWindows[name] = iw;
 
         TGOS.TGEvent.addListener(mk, "click", function() {
@@ -120,6 +162,9 @@ function createMarkers() {
     });
 }
 
+/**
+ * 5. 切換港口連動
+ */
 function onPortChange() {
     var name = document.getElementById('portSelect').value;
     if (name) showPortData(name);
@@ -138,8 +183,13 @@ function showPortData(name) {
     drawCharts(name);
 }
 
+/**
+ * 6. 繪製圖表
+ */
 function drawCharts(name) {
-    var filtered = csvData.filter(function(r) { return r.port === name; });
+    var filtered = csvData.filter(function(r) { return (r.port || "").trim() === name; });
+    
+    // 依時間排序 (年/月)
     filtered.sort(function(a,b) { 
         return (parseInt(a.year)*100 + parseInt(a.month)) - (parseInt(b.year)*100 + parseInt(b.month)); 
     });
@@ -148,18 +198,40 @@ function drawCharts(name) {
     var phData = filtered.map(function(r) { return parseFloat(r.ph); });
     var doData = filtered.map(function(r) { return parseFloat(r.do); });
 
+    // pH Chart
     if (phChart) phChart.destroy();
-    phChart = new Chart(document.getElementById('phChart'), {
+    phChart = new Chart(document.getElementById('phChart').getContext('2d'), {
         type: 'line',
-        data: { labels: labels, datasets: [{ label: name + ' pH', data: phData, borderColor: 'orange', fill: false }] },
-        options: { responsive: false }
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'pH 值',
+                data: phData,
+                borderColor: '#e67e22',
+                backgroundColor: 'rgba(230, 126, 34, 0.1)',
+                tension: 0.2,
+                fill: true
+            }]
+        },
+        options: { responsive: false, scales: { y: { min: 6, max: 10 } } }
     });
 
+    // DO Chart
     if (doChart) doChart.destroy();
-    doChart = new Chart(document.getElementById('doChart'), {
+    doChart = new Chart(document.getElementById('doChart').getContext('2d'), {
         type: 'line',
-        data: { labels: labels, datasets: [{ label: name + ' DO', data: doData, borderColor: 'blue', fill: false }] },
-        options: { responsive: false }
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '溶氧量 (mg/L)',
+                data: doData,
+                borderColor: '#3498db',
+                backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                tension: 0.2,
+                fill: true
+            }]
+        },
+        options: { responsive: false, scales: { y: { min: 0, max: 12 } } }
     });
 }
 </script>
